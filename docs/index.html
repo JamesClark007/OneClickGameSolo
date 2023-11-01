@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Jump Over</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+            background-color: #EEE;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="300" height="150"></canvas>
+    <p>Score: <span id="score">0</span></p>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+
+        let player, obstacles, gravity, jumpStrength, score, gameOver, gameSpeed, speedIncrementInterval, speedIncrementAmount, lastObstacleDistance;
+        let audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        let bgmOscillator, bgmGain, bgmLfo;
+
+        function resetGame() {
+            player = {
+                x: 50,
+                y: 100,
+                width: 20,
+                height: 20,
+                dy: 0
+            };
+
+            obstacles = [];
+            gravity = 0.5;
+            jumpStrength = 8; // Decreased jump strength
+            score = 0;
+            gameOver = false;
+            gameSpeed = 1;
+            speedIncrementInterval = 1000; // Speed will increase every 1000 ticks (about every 16 seconds)
+            speedIncrementAmount = 0.05; // Speed will increase by this amount
+            lastObstacleDistance = 0;
+            scoreElement.textContent = score;
+
+            playBackgroundMusic();
+        }
+
+        function playBackgroundMusic() {
+            bgmOscillator = audioContext.createOscillator();
+            bgmGain = audioContext.createGain();
+            bgmLfo = audioContext.createOscillator();
+
+            bgmOscillator.type = 'triangle';
+            bgmOscillator.frequency.value = 261.63; // Middle C frequency
+
+            bgmLfo.type = 'sine';
+            bgmLfo.frequency.value = 2; // LFO frequency
+            bgmLfo.connect(bgmGain.gain); // LFO modulates gain
+
+            bgmOscillator.connect(bgmGain);
+            bgmGain.connect(audioContext.destination);
+
+            bgmOscillator.start();
+            bgmLfo.start();
+        }
+
+        function stopBackgroundMusic() {
+            bgmOscillator.stop();
+            bgmLfo.stop();
+        }
+
+        function playJumpSound() {
+            let oscillator = audioContext.createOscillator();
+            let gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.type = 'square';
+            oscillator.frequency.value = 1000; // Frequency in hertz
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(1, audioContext.currentTime + 0.01);
+            gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.2);
+
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.2);
+        }
+
+        function playCheerfulSound() {
+            let oscillator = audioContext.createOscillator();
+            let gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.type = 'triangle';
+            oscillator.frequency.setValueCurveAtTime(
+                [440, 880, 440, 880, 440], // Frequencies for the sound effect
+                audioContext.currentTime,
+                0.5 // Duration of the sound effect
+            );
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(1, audioContext.currentTime + 0.01);
+            gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.5);
+
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.5);
+        }
+
+        function updateGame() {
+            if (gameOver) {
+                stopBackgroundMusic();
+                resetGame();
+                return;
+            }
+
+            if (ticks % speedIncrementInterval === 0) {
+                gameSpeed += speedIncrementAmount;
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            updatePlayer();
+            updateObstacles();
+            drawPlayer();
+            drawObstacles();
+            checkCollisions();
+        }
+
+        function updatePlayer() {
+            player.dy += gravity;
+            player.y += player.dy;
+
+            if (player.y > 100) {
+                player.y = 100;
+                player.dy = 0;
+            }
+        }
+
+        function updateObstacles() {
+            lastObstacleDistance += 3 * gameSpeed; // Increment distance based on game speed
+
+            if (lastObstacleDistance > 150 && Math.random() < 0.01 * gameSpeed) { // Ensure obstacles are spaced out
+                obstacles.push({
+                    x: canvas.width,
+                    y: 100,
+                    width: 10,
+                    height: 20
+                });
+                lastObstacleDistance = 0; // Reset distance counter after spawning an obstacle
+            }
+
+            obstacles.forEach(obstacle => {
+                obstacle.x -= 3 * gameSpeed; // Movement speed increases with game speed
+            });
+
+            obstacles = obstacles.filter(obstacle => obstacle.x + obstacle.width > 0);
+        }
+
+        function drawPlayer() {
+            ctx.fillStyle = '#F00';
+            ctx.fillRect(player.x, player.y - player.height, player.width, player.height);
+        }
+
+        function drawObstacles() {
+            ctx.fillStyle = '#00F';
+            obstacles.forEach(obstacle => {
+                ctx.fillRect(obstacle.x, obstacle.y - obstacle.height, obstacle.width, obstacle.height);
+            });
+        }
+
+        function checkCollisions() {
+            obstacles.forEach(obstacle => {
+                if (player.x < obstacle.x + obstacle.width &&
+                    player.x + player.width > obstacle.x &&
+                    player.y < obstacle.y + obstacle.height &&
+                    player.y + player.height > obstacle.y) {
+                    gameOver = true;
+                }
+                if (obstacle.x + obstacle.width < player.x && !obstacle.scored) {
+                    obstacle.scored = true;
+                    score++;
+                    scoreElement.textContent = score;
+
+                    // Play cheerful sound every 5 points
+                    if (score % 5 === 0) {
+                        playCheerfulSound();
+                    }
+                }
+            });
+        }
+
+        // Handle spacebar press
+        document.addEventListener('keydown', function(event) {
+            if (event.code === 'Space' && player.y === 100) {
+                player.dy = -jumpStrength;
+                playJumpSound();
+            }
+        });
+
+        // Initialize and start the game
+        resetGame();
+        let ticks = 0;
+        setInterval(function() {
+            updateGame();
+            ticks++;
+        }, 1000 / 60);
+    </script>
+</body>
+</html>
